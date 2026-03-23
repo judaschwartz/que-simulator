@@ -52,11 +52,11 @@
   </div>
   <div class="control-group">
     <label>Processing Speed (cars/hr)</label>
-    <input type="number" id="speed" value="100" min="1">
+    <input type="number" id="speed" value="95" min="1">
   </div>
   <div class="control-group">
     <label>Number of Cars</label>
-    <input type="number" id="numCars" value="640" min="1" max="200">
+    <input type="number" id="numCars" value="665" min="1" max="200">
   </div>
   <div class="control-group">
     <label>Start Delay (min)</label>
@@ -74,7 +74,7 @@
   <div class="progress-text" id="progressText">Ready</div>
 </div>
 
-<div class="time-display">Time: <span id="simTime">0:00</span> / <span id="simTotal">0:00</span> (estimated to complete)</div>
+<div class="time-display">Actual total time: <span id="simTime">0:00</span> / <span id="simTotal">0:00</span> (estimated to complete)</div>
 
 <div class="stats">
   <div class="stat"><div class="value" id="statWaiting">0</div><div class="label">In Queue</div></div>
@@ -82,6 +82,7 @@
   <div class="stat"><div class="value" id="statDone">0</div><div class="label">Completed</div></div>
   <div class="stat"><div class="value" id="statMaxQueue">0</div><div class="label">Max Queue</div></div>
   <div class="stat"><div class="value" id="statAvgWait">0:00</div><div class="label">Avg Wait</div></div>
+  <div class="stat"><div class="value" id="statMaxWait">0:00</div><div class="label">Longest Wait</div></div>
   <div class="stat"><div class="value" id="statIdleTime">0:00</div><div class="label">Idle Time (no queue)</div></div>
 </div>
 
@@ -128,22 +129,18 @@ function formatMinSec(simMinutes) {
 
 function startSimulation() {
   if (simRunning) return;
-
+  simRunning = true;
   const durationMin = parseDuration(document.getElementById('duration').value);
   const speedPerHr = parseFloat(document.getElementById('speed').value);
   const numCars = parseInt(document.getElementById('numCars').value);
-  if (!speedPerHr || !numCars || !durationMin) return;
-  const delayMin = parseFloat(document.getElementById('delay').value) || 0;
-
   if (numCars < 1 || durationMin < 1 || speedPerHr < 1) return;
-
+  const delayMin = parseFloat(document.getElementById('delay').value) || 0;
   document.getElementById('runBtn').disabled = true;
   document.getElementById('pauseBtn').style.display = 'inline-block';
-  simRunning = true;
   cars = [];
 
   // Generate random arrival times uniformly distributed over the full duration
-  const arrivalTimes = Array.from({length: numCars}, () => Math.max((Math.random() * durationMin +2) - 2, 0));
+  const arrivalTimes = [0, 0, 0, 0, 0, ...Array.from({length: numCars - 5}, () => (Math.random() * durationMin))];
   arrivalTimes.sort((a, b) => a - b);
   for (let i = 0; i < numCars; i++) {
     cars.push({
@@ -193,6 +190,7 @@ function startSimulation() {
   let maxQueue = 0;
   let totalWaitTime = 0;
   let doneCount = 0;
+  let maxWaitTime = 0;
   let idleSimTime = 0; // sim-minutes with no cars in queue
 
   function tick() {
@@ -220,6 +218,7 @@ function startSimulation() {
           processingCars[lane].waitTime = processingCars[lane].startProcessTime - processingCars[lane].arrivalTime;
           doneCount++;
           totalWaitTime += processingCars[lane].waitTime;
+          if (processingCars[lane].waitTime > maxWaitTime) maxWaitTime = processingCars[lane].waitTime;
           processingCars[lane] = null;
           changed = true;
         }
@@ -254,6 +253,7 @@ function startSimulation() {
     document.getElementById('statDone').textContent = done;
     document.getElementById('statMaxQueue').textContent = maxQueue;
     document.getElementById('statAvgWait').textContent = doneCount > 0 ? formatMinSec(totalWaitTime / doneCount) : '0:00';
+    document.getElementById('statMaxWait').textContent = formatMinSec(maxWaitTime);
     document.getElementById('statIdleTime').textContent = formatMinSec(idleSimTime);
 
     // Progress
@@ -305,7 +305,7 @@ function renderLanes() {
   // Show last 30 done cars to avoid DOM overload
   // const recentDone = doneCar.slice(-50);
   doneLane.innerHTML = '<h3>✅ Completed (' + doneCars.length + ')</h3>' +
-    doneCars.map(c => `<div class="car done"><span class="car-icon">✅</span> Car #${c.id} <span style="margin-left:auto;font-size:11px;opacity:0.8">waited ${formatMinSec(c.waitTime)}</span></div>`).join('');
+    doneCars.reverse().map(c => `<div class="car done"><span class="car-icon">✅</span> Car #${c.id} <span style="margin-left:auto;font-size:11px;opacity:0.8">waited ${formatMinSec(c.waitTime)}</span></div>`).join('');
 }
 </script>
 </body>
