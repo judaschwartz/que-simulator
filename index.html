@@ -18,6 +18,10 @@
   #runBtn:disabled { background: #555; cursor: not-allowed; }
   #resetBtn { background: #0f3460; color: #fff; }
   #resetBtn:hover { background: #1a4a80; }
+  #quickBtn { background: #533a0e; color: #f5c542; }
+  #quickBtn:hover { background: #6b4c12; }
+  #avgBtn { background: #1b4332; color: #52b788; }
+  #avgBtn:hover { background: #245a40; }
   #pauseBtn { background: #f5a623; color: #1a1a2e; display: none; }
   #pauseBtn:hover { background: #d4911e; }
   .stats { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
@@ -44,7 +48,7 @@
 </head>
 <body>
 <h1>🚗 Queue Simulator</h1>
-
+<h5 style="text-align:center;color:#aaa;margin-bottom:20px;">Simulate a queue with 3 parallel processors where each car arrives at random time within the set duration</h5>
 <div class="controls">
   <div class="control-group">
     <label>Duration (HH:MM)</label>
@@ -64,6 +68,8 @@
   </div>
   <div class="control-group" style="justify-content: flex-end; flex-direction: row; gap: 8px; align-self: flex-end;">
     <button id="runBtn" onclick="startSimulation()">▶ Run</button>
+    <button id="quickBtn" onclick="instantStats()">⚡ Quick Stats</button>
+    <button id="avgBtn" onclick="averageStats()">📊 100-Run Avg</button>
     <button id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
     <button id="resetBtn" onclick="window.location.reload()">↻ Reset</button>
   </div>
@@ -125,6 +131,113 @@ function formatMinSec(simMinutes) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function runOneSim(durationMin, speedPerHr, numCars, delayMin) {
+  const arrivalTimes = [0, 0, 0, 0, 0, ...Array.from({length: numCars - 5}, () => (Math.random() * durationMin))];
+  arrivalTimes.sort((a, b) => a - b);
+
+  const NUM_LANES = 3;
+  const processTimePerCar = (60 / speedPerHr) * NUM_LANES;
+
+  let laneAvailableAt = Array(NUM_LANES).fill(delayMin);
+  let maxSimTime = 0;
+  let maxQueue = 0;
+  let totalWaitTime = 0;
+  let maxWaitTime = 0;
+  let idleSimTime = 0;
+
+  const events = [];
+  for (let i = 0; i < numCars; i++) {
+    const arrival = arrivalTimes[i];
+    const earliestLane = laneAvailableAt.indexOf(Math.min(...laneAvailableAt));
+    const canStart = Math.max(arrival, laneAvailableAt[earliestLane]);
+    const done = canStart + processTimePerCar;
+    const waitTime = canStart - arrival;
+    totalWaitTime += waitTime;
+    if (waitTime > maxWaitTime) maxWaitTime = waitTime;
+    laneAvailableAt[earliestLane] = done;
+    maxSimTime = Math.max(maxSimTime, done);
+    events.push({ time: arrival, delta: 1 });
+    events.push({ time: canStart, delta: -1 });
+  }
+
+  events.sort((a, b) => a.time - b.time || a.delta - b.delta);
+  let queueSize = 0;
+  for (const ev of events) {
+    queueSize += ev.delta;
+    if (queueSize > maxQueue) maxQueue = queueSize;
+  }
+
+  let laneAvail2 = Array(NUM_LANES).fill(delayMin);
+  for (let i = 0; i < numCars; i++) {
+    const arrival = arrivalTimes[i];
+    const earliestLane = laneAvail2.indexOf(Math.min(...laneAvail2));
+    const minFree = Math.min(...laneAvail2);
+    if (arrival > minFree && i > 0) {
+      idleSimTime += Math.min(arrival, durationMin) - Math.max(minFree, 0);
+      if (idleSimTime < 0) idleSimTime = 0;
+    }
+    const canStart = Math.max(arrival, laneAvail2[earliestLane]);
+    laneAvail2[earliestLane] = canStart + processTimePerCar;
+  }
+
+  return { maxSimTime, maxQueue, avgWait: totalWaitTime / numCars, maxWaitTime, idleSimTime: Math.max(0, idleSimTime) };
+}
+
+function averageStats() {
+  if (simRunning) return;
+  const durationMin = parseDuration(document.getElementById('duration').value);
+  const speedPerHr = parseFloat(document.getElementById('speed').value);
+  const numCars = parseInt(document.getElementById('numCars').value);
+  if (numCars < 1 || durationMin < 1 || speedPerHr < 1) return;
+  const delayMin = parseFloat(document.getElementById('delay').value) || 0;
+
+  const RUNS = 100;
+  let totals = { maxSimTime: 0, maxQueue: 0, avgWait: 0, maxWaitTime: 0, idleSimTime: 0 };
+  for (let r = 0; r < RUNS; r++) {
+    const result = runOneSim(durationMin, speedPerHr, numCars, delayMin);
+    totals.maxSimTime += result.maxSimTime;
+    totals.maxQueue += result.maxQueue;
+    totals.avgWait += result.avgWait;
+    totals.maxWaitTime += result.maxWaitTime;
+    totals.idleSimTime += result.idleSimTime;
+  }
+
+  document.getElementById('statWaiting').textContent = 0;
+  document.getElementById('statProcessing').textContent = 0;
+  document.getElementById('statDone').textContent = numCars;
+  document.getElementById('statMaxQueue').textContent = Math.round(totals.maxQueue / RUNS);
+  document.getElementById('statAvgWait').textContent = formatMinSec(totals.avgWait / RUNS);
+  document.getElementById('statMaxWait').textContent = formatMinSec(totals.maxWaitTime / RUNS);
+  document.getElementById('statIdleTime').textContent = formatMinSec(totals.idleSimTime / RUNS);
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressText').textContent = `📊 Average of ${RUNS} runs`;
+  document.getElementById('simTime').textContent = formatHourMin(totals.maxSimTime / RUNS);
+  document.getElementById('simTotal').textContent = formatHourMin(totals.maxSimTime / RUNS);
+}
+
+function instantStats() {
+  if (simRunning) return;
+  const durationMin = parseDuration(document.getElementById('duration').value);
+  const speedPerHr = parseFloat(document.getElementById('speed').value);
+  const numCars = parseInt(document.getElementById('numCars').value);
+  if (numCars < 1 || durationMin < 1 || speedPerHr < 1) return;
+  const delayMin = parseFloat(document.getElementById('delay').value) || 0;
+
+  const result = runOneSim(durationMin, speedPerHr, numCars, delayMin);
+
+  document.getElementById('statWaiting').textContent = 0;
+  document.getElementById('statProcessing').textContent = 0;
+  document.getElementById('statDone').textContent = numCars;
+  document.getElementById('statMaxQueue').textContent = result.maxQueue;
+  document.getElementById('statAvgWait').textContent = formatMinSec(result.avgWait);
+  document.getElementById('statMaxWait').textContent = formatMinSec(result.maxWaitTime);
+  document.getElementById('statIdleTime').textContent = formatMinSec(result.idleSimTime);
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressText').textContent = '⚡ Instant result';
+  document.getElementById('simTime').textContent = formatHourMin(result.maxSimTime);
+  document.getElementById('simTotal').textContent = formatHourMin(result.maxSimTime);
 }
 
 function startSimulation() {
